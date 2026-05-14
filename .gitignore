@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# Django
+*.log
+db.sqlite3
+media/
+staticfiles/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Node / React
+node_modules/
+dist/
+build/
+.vite/
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# IDE / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Generated files
+*.tmp
+*.bak
