@@ -1,5 +1,7 @@
 import json
-import time
+import os
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 
@@ -10,46 +12,97 @@ from django.views.decorators.csrf import csrf_exempt
 ORDERS = {}
 
 
-def build_care_plan(data):
-    time.sleep(2)
+def extract_openai_text(response_body):
+    choices = response_body.get("choices", [])
+    if not choices:
+        raise RuntimeError("LLM response did not include choices.")
 
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if isinstance(content, list):
+        text = "\n".join(item.get("text", "") for item in content if isinstance(item, dict)).strip()
+    else:
+        text = str(content).strip()
+
+    if not text:
+        raise RuntimeError("LLM response did not include text output.")
+    return text
+
+
+def build_care_plan_prompt(data):
     patient_name = f"{data.get('patient_first_name', '').strip()} {data.get('patient_last_name', '').strip()}".strip()
-    medication = data.get("medication_name", "the prescribed medication")
-    primary_diagnosis = data.get("primary_diagnosis", "the primary diagnosis")
-    patient_records = data.get("patient_records", "")
-    medication_history = data.get("medication_history", "")
 
-    return f"""Care Plan
+    return f"""Generate a concise specialty pharmacy care plan using the patient and order information below.
 
-Patient: {patient_name or "Unknown patient"}
-Medication: {medication}
-Primary Diagnosis: {primary_diagnosis}
+Required sections:
+1. Problem list / Drug therapy problems
+2. Goals
+3. Pharmacist interventions / plan
+4. Monitoring plan
 
-Problem list / Drug therapy problems
-- Patient requires a medication-specific care plan for {medication}.
-- Monitor therapy response related to {primary_diagnosis}.
-- Review medication history for adherence issues, duplicate therapy, and safety concerns.
+Keep the tone professional and practical for a pharmacist. Do not invent lab values or facts that are not provided.
 
-Goals
-- Support safe and effective use of {medication}.
-- Improve or stabilize symptoms related to {primary_diagnosis}.
-- Reduce avoidable adverse events through monitoring and patient education.
-
-Pharmacist interventions / plan
-- Review patient records and current medication history.
-- Confirm medication instructions, expected benefits, and common side effects with the patient.
-- Coordinate with the referring provider if clinical information is incomplete.
-- Document care plan completion for pharmacy workflow and reporting.
-
-Monitoring plan
-- Track patient response after therapy starts.
-- Monitor for medication side effects and adherence concerns.
-- Follow up based on provider instructions and pharmacy protocol.
-
-Source notes
-- Medication history: {medication_history or "Not provided"}
-- Patient records summary: {patient_records or "Not provided"}
+Patient information:
+- Name: {patient_name or "Not provided"}
+- MRN: {data.get("patient_mrn", "Not provided")}
+- Referring provider: {data.get("referring_provider", "Not provided")}
+- Referring provider NPI: {data.get("referring_provider_npi", "Not provided")}
+- Primary diagnosis: {data.get("primary_diagnosis", "Not provided")}
+- Additional diagnoses: {data.get("additional_diagnoses", "Not provided")}
+- Medication name: {data.get("medication_name", "Not provided")}
+- Medication history: {data.get("medication_history", "Not provided")}
+- Patient records: {data.get("patient_records", "Not provided")}
 """
+
+
+def build_care_plan(data):
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    api_url = f"{base_url}/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You generate specialty pharmacy care plans for pharmacist review.",
+            },
+            {
+                "role": "user",
+                "content": build_care_plan_prompt(data),
+            },
+        ],
+        "max_tokens": 1200,
+    }
+
+    request = urllib.request.Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response_body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8")
+        try:
+            error_json = json.loads(error_body)
+            message = error_json.get("error", {}).get("message", "LLM API request failed.")
+        except json.JSONDecodeError:
+            message = "LLM API request failed."
+        raise RuntimeError(message) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError("Could not connect to LLM API.") from exc
+
+    return extract_openai_text(response_body)
 
 
 @csrf_exempt
@@ -69,15 +122,17 @@ def create_order(request):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "input": data,
         "care_plan": "",
+        "error_message": "",
     }
     ORDERS[order_id] = order
 
     try:
         order["care_plan"] = build_care_plan(data)
         order["status"] = "completed"
-    except Exception:
+    except Exception as exc:
         order["status"] = "failed"
         order["care_plan"] = ""
+        order["error_message"] = str(exc)
 
     return JsonResponse(order, status=201)
 

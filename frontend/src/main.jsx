@@ -192,6 +192,8 @@ function App() {
 
               {order.status === "completed" ? (
                 <pre>{order.care_plan}</pre>
+              ) : order.status === "failed" ? (
+                <div className="alert">{order.error_message || "Care plan generation failed."}</div>
               ) : (
                 <p className="muted">Care plan is not completed yet.</p>
               )}

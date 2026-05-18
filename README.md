@@ -6,13 +6,37 @@ Day 2 MVP for a care plan generation system.
 
 - Submits patient and order information from a React form.
 - Creates an in-memory order in Django.
-- Synchronously generates a simple care plan.
+- Synchronously calls an OpenAI-compatible LLM API to generate a care plan.
 - Supports searching an order by `order_id`.
 - Supports downloading the generated care plan as a `.txt` file.
 
 This version intentionally does not include database tables, duplicate detection, async queues, workers, WebSocket, tests, or cloud deployment yet.
 
 ## Run With Docker
+
+Create a local `.env` file from the example:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` and set your LLM API settings:
+
+```text
+OPENAI_API_KEY=sk-your-real-openai-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+```
+
+For Xiaomi MiMo Token Plan, keep the same variable names but replace the values:
+
+```text
+OPENAI_API_KEY=your-xiaomi-mimo-key
+OPENAI_BASE_URL=your-xiaomi-openai-compatible-base-url
+OPENAI_MODEL=your-xiaomi-model-name
+```
+
+Do not commit `.env` to GitHub. It is ignored by `.gitignore`.
 
 From the project root:
 
